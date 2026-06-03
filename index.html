@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parent's Guide</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .tracker-html-render { background-color: #f8fafc; padding: 1.5rem; border-radius: 1rem; border: 1px solid #e2e8f0; }
+        .tracker-html-render h3 { color: #0f766e; font-size: 1.25rem; font-weight: 900; margin-top: 1.5rem; margin-bottom: 0.5rem; text-transform: uppercase; }
+        .tracker-html-render p { margin-bottom: 0.75rem; line-height: 1.6; }
+        .tracker-html-render ul, .tracker-html-render ol { padding-left: 1.5rem; margin-bottom: 1.25rem; }
+        .tracker-html-render li { margin-bottom: 0.75rem; }
+    </style>
+</head>
+<body class="bg-slate-100 font-sans text-slate-800 pb-20">
+
+    <header class="bg-teal-600 text-white p-4 shadow-md sticky top-0 z-50">
+        <div class="max-w-md mx-auto flex justify-between items-center">
+            <h1 class="text-xl font-bold tracking-wide">Parent's Guide</h1>
+            <button id="homeBtn" class="hidden text-sm bg-teal-700 px-4 py-2 rounded-full hover:bg-teal-800 transition font-semibold">Home</button>
+        </div>
+    </header>
+
+    <main id="app" class="max-w-md mx-auto p-4 fade-in">
+        <div class="min-h-[50vh] flex items-center justify-center text-slate-500 font-bold text-lg">Loading your safe space...</div>
+    </main>
+
+    <footer class="text-center p-6 text-xs text-slate-400 mt-10">
+        <p>This app provides guidance and tools to help doctors and parents. It is not a medical diagnosis.</p>
+        <p class="mt-2 font-bold text-slate-500">Clive 2026 © HassieHond - Copyright Protected - All Rights Reserved</p>
+    </footer>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'autism-support-app';
+        const apiKey = ""; 
+
+        // --- HASSIEHOND INTEGRATION 1: Functional Theme Variable ---
+        const HassieHond_ThemeColor = 'teal';
+
+        // --- HASSIEHOND INTEGRATION 2: Functional Age Calculator ---
+        function HassieHond_CalculateAge(dob) {
+            if (!dob) return "Unknown";
+            const birthDate = new Date(dob);
+            const today = new Date();
+            let age = today.getFullYear() - birthDate.getFullYear();
+            const m = today.getMonth() - birthDate.getMonth();
+            if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+            return age;
+        }
+
+        let state = {
+            user: null,
+            children: [],
+            currentChild: null,
+            activeTab: 'dashboard',
+            assessmentAnswers: Array(25).fill(null),
+            guideAnswers: [],
+            trackerLogs: [],
+            chatMessages: [],
+            guideViewMode: 'form'
+        };
+
+        const assessmentQuestions = [
+            "Does your child make eye contact when you speak to them?", "Does your child respond when you call their name?", "Does your child point at things they want or want to show you?", "Did your child start talking later than other kids their age?", "Does your child repeat words or phrases over and over (echolalia)?", "Does your child struggle to understand how other people are feeling?", "Does your child prefer to play alone rather than with other children?", "Does your child get very upset by small changes in their daily routine?", "Does your child flap their hands, rock their body, or spin in circles?", "Does your child line up their toys instead of playing with them normally?", "Is your child overly sensitive to loud noises, bright lights, or certain textures?", "Does your child seem completely insensitive to pain or temperature?", "Does your child have a very intense interest in one specific topic or object?", "Does your child struggle to start or keep a conversation going?", "Does your child use strange tones of voice (like a robot or singing tone)?", "Does your child avoid physical contact like hugs or cuddling?", "Does your child focus on small parts of an object (like the wheels of a toy car)?", "Does your child have unusual eating habits or refuse many foods based on texture?", "Does your child have extreme tantrums that seem to happen for no clear reason?", "Does your child struggle to understand jokes, sarcasm, or pretend play?", "Does your child take things extremely literally?", "Does your child seem to be in their own world sometimes?", "Does your child have trouble following simple instructions?", "Does your child stare at objects for a long time (like fans or lights)?", "Does your child show unusual fear of normal things, but no fear of real danger?"
+        ];
+
+        const guidanceQuestions = [
+            { q: "What is your child's favorite thing to do or play with?", opts: ["Building toys", "Sensory toys (water/sand)", "Spinning objects", "Screens/Tablets", "Physical play", "Lining things up"] },
+            { q: "What foods does your child absolutely refuse to eat?", opts: ["Mushy/soft foods", "Crunchy foods", "Mixed foods", "Strong tasting foods", "Very picky", "No food issues"] },
+            { q: "How does your child usually react to loud or sudden noises?", opts: ["Covers ears", "Cries/Gets upset", "Ignores them", "Gets hyper", "Gets angry"] },
+            { q: "What is the best way to calm your child down when they are upset?", opts: ["Deep hugs", "Giving space", "Favorite toy", "Music/Sounds", "Rocking/Swinging"] },
+            { q: "What usually triggers a meltdown?", opts: ["Routine changes", "Sensory overload", "Being told 'No'", "Transitions", "Can't communicate needs", "Random/Unknown"] },
+            { q: "How well does your child sleep at night?", opts: ["Sleeps perfectly", "Hard to fall asleep", "Wakes up often", "Needs strict routine", "Hardly sleeps"] },
+            { q: "Does your child like to be hugged or touched?", opts: ["Loves hugs", "Only on their terms", "Dislikes touch", "Sensitive to clothes/touch"] },
+            { q: "How does your child communicate needs?", opts: ["Sentences", "Pointing", "Leading by hand", "Crying/Tantrums", "Picture board/Device"] },
+            { q: "What is your child's morning routine like?", opts: ["Calm", "Needs strict structure", "Stressful", "Unpredictable"] },
+            { q: "How does your child handle new places?", opts: ["Loves them", "Warms up slowly", "Gets anxious", "Refuses to go"] },
+            { q: "Does your child have a comfort item?", opts: ["Blanket/Soft toy", "Hard object/toy", "Tablet", "None"] },
+            { q: "How does your child react to clothes?", opts: ["No issues", "Hates tags/seams", "Refuses some fabrics", "Takes clothes off"] },
+            { q: "What always makes your child happy?", opts: ["Water play", "Music", "Tickles", "Favorite show", "Specific interest"] },
+            { q: "How does your child act around strangers?", opts: ["Outgoing/No boundaries", "Shy", "Ignores them", "Gets scared", "Gets aggressive"] },
+            { q: "What is the hardest part of the day?", opts: ["Mornings", "Mealtimes", "Transitions", "Bedtime", "School/Social"] }
+        ];
+
+        async function callGemini(prompt) {
+            const delays = [1000, 2000, 4000, 8000, 16000];
+            for (let i = 0; i < 5; i++) {
+                try {
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                    });
+                    if (!response.ok) throw new Error("API Error");
+                    const data = await response.json();
+                    return data.candidates[0].content.parts[0].text;
+                } catch (e) {
+                    if (i === 4) throw e;
+                    await new Promise(r => setTimeout(r, delays[i]));
+                }
+            }
+        }
+
+        window.navigateTo = function(tab, childId = null) {
+            state.activeTab = tab;
+            if (childId) {
+                state.currentChild = state.children.find(c => c.id === childId);
+            } else if (tab === 'dashboard') {
+                state.currentChild = null;
+            }
+            document.getElementById('homeBtn').style.display = tab === 'dashboard' ? 'none' : 'block';
+            window.scrollTo(0,0);
+            render();
+        }
+
+        document.getElementById('homeBtn').onclick = () => navigateTo('dashboard');
+
+        function render() {
+            const appDiv = document.getElementById('app');
+            appDiv.innerHTML = '';
+            if (state.activeTab === 'dashboard') appDiv.innerHTML = getDashboardHTML();
+            else if (state.activeTab === 'add-child') appDiv.innerHTML = getAddChildHTML();
+            else if (state.activeTab === 'child-menu') appDiv.innerHTML = getChildMenuHTML();
+            else if (state.activeTab === 'assessment') appDiv.innerHTML = getAssessmentHTML();
+            else if (state.activeTab === 'guide') appDiv.innerHTML = getGuideHTML();
+            else if (state.activeTab === 'tracker') {
+                appDiv.innerHTML = getTrackerHTML();
+                setupTrackerListeners();
+            }
+            else if (state.activeTab === 'qa') {
+                appDiv.innerHTML = getQAHTML();
+                renderChatMessages();
+            }
+        }
+
+        function getDashboardHTML() {
+            let html = `
+                <div class="space-y-6 fade-in">
+                    <div class="bg-white p-6 rounded-2xl shadow-sm text-center">
+                        <h2 class="text-2xl font-bold text-${HassieHond_ThemeColor}-700 mb-2">Welcome</h2>
+                        <p class="text-slate-500 text-sm font-medium">Select a child's profile below or add a new one to get started.</p>
+                    </div>
+                    <div class="space-y-3">
+            `;
+            if (state.children.length === 0) {
+                html += `<div class="text-center p-10 bg-${HassieHond_ThemeColor}-50 rounded-2xl border border-${HassieHond_ThemeColor}-100 text-${HassieHond_ThemeColor}-700 font-medium">You haven't added any profiles yet.</div>`;
+            } else {
+                state.children.forEach(child => {
+                    html += `
+                        <button onclick="navigateTo('child-menu', '${child.id}')" class="w-full bg-white p-5 rounded-xl shadow-sm hover:shadow-md transition flex items-center justify-between border-l-4 border-${HassieHond_ThemeColor}-500">
+                            <div class="text-left">
+                                <h3 class="text-xl font-bold text-slate-800">${child.name}</h3>
+                                <p class="text-sm text-slate-500 font-medium mt-1">${HassieHond_CalculateAge(child.dob)} years old</p>
+                            </div>
+                            <div class="text-${HassieHond_ThemeColor}-500 font-bold text-2xl">→</div>
+                        </button>`;
+                });
+            }
+            html += `</div>
+                <button onclick="navigateTo('add-child')" class="w-full bg-${HassieHond_ThemeColor}-600 text-white font-bold p-4 rounded-xl shadow-md hover:bg-${HassieHond_ThemeColor}-700 transition flex items-center justify-center gap-2 text-lg">
+                    <span class="text-2xl leading-none">+</span> Add a Child Profile
+                </button>
+            </div>`;
+            return html;
+        }
+
+        function getAddChildHTML() {
+            const isEdit = !!state.currentChild && state.activeTab === 'add-child';
+            const name = isEdit ? state.currentChild.name : '';
+            const dob = isEdit ? state.currentChild.dob : '';
+            
+            return `
+                <div class="bg-white p-6 rounded-2xl shadow-sm space-y-4 fade-in">
+                    <h2 class="text-2xl font-bold text-slate-800 border-b pb-3">${isEdit ? 'Edit Profile' : 'Add New Profile'}</h2>
+                    <div>
+                        <label class="block text-sm font-bold text-slate-600 mb-2">Child's Name</label>
+                        <input id="childName" type="text" class="w-full border border-slate-300 rounded-lg p-3 outline-none focus:ring-2 focus:ring-${HassieHond_ThemeColor}-500 font-medium" value="${name}" placeholder="e.g. Alex">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-slate-600 mb-2">Date of Birth</label>
+                        <input id="childDob" type="date" class="w-full border border-slate-300 rounded-lg p-3 outline-none focus:ring-2 focus:ring-${HassieHond_ThemeColor}-500 font-medium" value="${dob}">
+                    </div>
+                    <div class="pt-6 flex flex-col gap-3">
+                        <div class="flex gap-3">
+                            <button onclick="navigateTo('${isEdit ? 'child-menu' : 'dashboard'}', '${isEdit ? state.currentChild.id : ''}')" class="flex-1 bg-slate-200 p-3 rounded-lg font-bold">Cancel</button>
+                            <button onclick="saveProfile()" class="flex-1 bg-${HassieHond_ThemeColor}-600 text-white p-3 rounded-lg font-bold shadow-md">Save Profile</button>
+                        </div>
+                        ${isEdit ? `<button onclick="deleteProfile()" class="w-full bg-red-50 text-red-600 border border-red-200 p-3 rounded-lg font-bold mt-2 hover:bg-red-100">Delete Profile</button>` : ''}
+                    </div>
+                </div>`;
+        }
+
+        window.saveProfile = async function() {
+            const name = document.getElementById('childName').value;
+            const dob = document.getElementById('childDob').value;
+            if (!name || !dob) return alert("Please enter both the name and date of birth.");
+            
+            if (state.currentChild) {
+                await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'children', state.currentChild.id), { name, dob }, { merge: true });
+                navigateTo('child-menu', state.currentChild.id);
+            } else {
+                await addDoc(collection(db, 'artifacts', appId, 'users', state.user.uid, 'children'), { name, dob, createdAt: Date.now() });
+                navigateTo('dashboard');
+            }
+        }
+        window.deleteProfile = async function() {
+            if (confirm("Are you sure you want to completely delete this profile?")) {
+                await deleteDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'children', state.currentChild.id));
+                navigateTo('dashboard');
+            }
+        }
+
+        function getChildMenuHTML() {
+            const menus = [
+                { id: 'assessment', title: 'Autism Checklist', desc: 'Questions to help doctors with diagnosis', icon: '📝' },
+                { id: 'guide', title: 'Personal Care Guide', desc: 'Custom guide on how to handle your child', icon: '📖' },
+                { id: 'qa', title: 'Ask Questions', desc: 'Get specific help for situations', icon: '💬' },
+                { id: 'tracker', title: 'Daily Tracker', desc: 'Log behaviors, triggers, and guides', icon: '📅' },
+            ];
+
+            let html = `
+                <div class="space-y-6 fade-in">
+                    <div class="text-center mb-4 bg-white p-6 rounded-2xl shadow-sm relative">
+                        <button onclick="navigateTo('add-child', '${state.currentChild.id}')" class="absolute top-4 right-4 text-xs font-bold text-${HassieHond_ThemeColor}-600 bg-${HassieHond_ThemeColor}-50 px-4 py-2 rounded-full border border-${HassieHond_ThemeColor}-100">Edit Info</button>
+                        <h2 class="text-3xl font-bold text-slate-800">${state.currentChild.name}</h2>
+                        <p class="text-slate-500 font-medium mt-1">${HassieHond_CalculateAge(state.currentChild.dob)} years old (Born: ${new Date(state.currentChild.dob).toLocaleDateString()})</p>
+                    </div>
+                    <div class="grid grid-cols-1 gap-4">
+            `;
+            menus.forEach(m => {
+                html += `
+                    <button onclick="navigateTo('${m.id}', '${state.currentChild.id}')" class="bg-white p-5 rounded-2xl shadow-sm hover:shadow-md transition text-left flex items-start gap-4">
+                        <div class="text-4xl bg-${HassieHond_ThemeColor}-50 p-3 rounded-xl">${m.icon}</div>
+                        <div class="pt-1">
+                            <h3 class="text-lg font-bold text-slate-800">${m.title}</h3>
+                            <p class="text-sm text-slate-500 mt-1 font-medium">${m.desc}</p>
+                        </div>
+                    </button>`;
+            });
+            html += `</div></div>`;
+            return html;
+        }
+
+        function getAssessmentHTML() {
+            if (state.currentChild.assessmentScore !== undefined && state.currentChild.assessmentScore !== null) {
+                const score = state.currentChild.assessmentScore;
+                const ind = state.currentChild.assessmentIndication;
+                const col = score <= 15 ? 'text-green-600' : score <= 30 ? 'text-orange-500' : 'text-red-600';
+                return `
+                    <div class="bg-white p-6 rounded-2xl shadow-sm fade-in text-center space-y-6">
+                        <h2 class="text-2xl font-bold text-slate-800">Checklist Results</h2>
+                        <p class="text-slate-600 text-sm font-medium">Show this screen to your doctor. <br/><br/><span class="text-${HassieHond_ThemeColor}-700 bg-${HassieHond_ThemeColor}-50 p-2 rounded-lg block font-bold">(These results were also saved automatically to your Daily Tracker).</span></p>
+                        <div class="bg-slate-50 p-8 rounded-2xl border-2 border-slate-100">
+                            <p class="text-6xl font-black mb-3 text-slate-800">${score} <span class="text-2xl text-slate-400">/ 50</span></p>
+                            <p class="text-xl font-bold ${col} uppercase tracking-wider">${ind}</p>
+                        </div>
+                        <div class="text-left text-sm text-slate-700 space-y-3 bg-blue-50 p-5 rounded-xl">
+                            <p class="font-bold text-lg text-blue-900 border-b border-blue-200 pb-2">Note for the Doctor:</p>
+                            <p class="font-medium">This score is based on 25 standard behavioral questions answered by the parent.</p>
+                            <ul class="list-disc pl-5 font-medium space-y-1">
+                                <li>0-15: Fewer traits associated with the spectrum.</li>
+                                <li>16-30: Moderate traits, worth a professional evaluation.</li>
+                                <li>31-50: High indication of traits on the autism spectrum.</li>
+                            </ul>
+                        </div>
+                        <div class="flex gap-3 pt-4">
+                            <button onclick="retakeAssessment()" class="flex-1 bg-slate-200 p-4 rounded-xl font-bold hover:bg-slate-300">Retake</button>
+                            <button onclick="navigateTo('child-menu', '${state.currentChild.id}')" class="flex-1 bg-${HassieHond_ThemeColor}-600 text-white p-4 rounded-xl font-bold shadow-md hover:bg-${HassieHond_ThemeColor}-700">Go Back</button>
+                        </div>
+                    </div>`;
+            }
+
+            state.assessmentAnswers = state.currentChild.assessmentAnswers || Array(25).fill(null);
+            let html = `
+                <div class="space-y-6 fade-in" id="assessmentForm">
+                    <div class="flex items-center gap-3 bg-white p-4 rounded-xl shadow-sm">
+                        <button onclick="navigateTo('child-menu', '${state.currentChild.id}')" class="text-${HassieHond_ThemeColor}-600 font-bold p-2 bg-${HassieHond_ThemeColor}-50 rounded-lg px-4">← Back</button>
+                        <h2 class="text-xl font-bold text-slate-800">Autism Checklist</h2>
+                    </div>
+                    <div class="bg-${HassieHond_ThemeColor}-50 border border-${HassieHond_ThemeColor}-200 p-5 rounded-xl text-sm text-${HassieHond_ThemeColor}-800 font-bold text-center shadow-sm">
+                        Please answer the following 25 questions as honestly as possible about how ${state.currentChild.name} normally behaves.
+                    </div>
+            `;
+            assessmentQuestions.forEach((q, i) => {
+                const ans = state.assessmentAnswers[i];
+                html += `
+                    <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                        <p class="font-bold text-slate-800 mb-4 text-lg">${i+1}. ${q}</p>
+                        <div class="flex gap-2" id="q-${i}">
+                            <button onclick="ansAst(${i}, 0)" class="ast-btn flex-1 py-3 rounded-xl border-2 text-sm font-bold transition ${ans===0?`bg-${HassieHond_ThemeColor}-600 text-white border-${HassieHond_ThemeColor}-600 shadow-md`:'bg-slate-50 text-slate-600 border-slate-200'}">Never</button>
+                            <button onclick="ansAst(${i}, 1)" class="ast-btn flex-1 py-3 rounded-xl border-2 text-sm font-bold transition ${ans===1?`bg-${HassieHond_ThemeColor}-600 text-white border-${HassieHond_ThemeColor}-600 shadow-md`:'bg-slate-50 text-slate-600 border-slate-200'}">Sometimes</button>
+                            <button onclick="ansAst(${i}, 2)" class="ast-btn flex-1 py-3 rounded-xl border-2 text-sm font-bold transition ${ans===2?`bg-${HassieHond_ThemeColor}-600 text-white border-${HassieHond_ThemeColor}-600 shadow-md`:'bg-slate-50 text-slate-600 border-slate-200'}">Often</button>
+                        </div>
+                    </div>`;
+            });
+            html += `<button onclick="calcAssessment()" class="w-full bg-${HassieHond_ThemeColor}-600 text-white font-bold text-xl p-5 rounded-2xl shadow-lg mt-4 hover:bg-${HassieHond_ThemeColor}-700 transition">Calculate & Save Results</button></div>`;
+            return html;
+        }
+
+        window.ansAst = function(qIndex, val) {
+            state.assessmentAnswers[qIndex] = val;
+            const container = document.getElementById(`q-${qIndex}`);
+            const btns = container.querySelectorAll('.ast-btn');
+            btns.forEach((b, i) => {
+                if (i === val) b.className = `ast-btn flex-1 py-3 rounded-xl border-2 text-sm font-bold transition bg-${HassieHond_ThemeColor}-600 text-white border-${HassieHond_ThemeColor}-600 shadow-md`;
+                else b.className = `ast-btn flex-1 py-3 rounded-xl border-2 text-sm font-bold transition bg-slate-50 text-slate-600 border-slate-200`;
+            });
+        }
+
+        window.calcAssessment = async function() {
+            if (state.assessmentAnswers.includes(null)) return alert("Please answer all questions before getting the result.");
+            const score = state.assessmentAnswers.reduce((a, b) => a + b, 0);
+            let ind = score <= 15 ? "Low Indication" : score <= 30 ? "Moderate Indication" : "High Indication";
+
+            const now = new Date();
+            const dateStr = now.toISOString().split('T')[0];
+            const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            let htmlLog = `<div class="tracker-rich-log"><p style="font-weight:bold; color:#0f766e; font-size:1.1rem; margin-bottom:10px;">Checklist Result: ${score}/50 (${ind})</p><p style="font-weight:bold; text-decoration:underline; margin-bottom:10px;">Full Questionnaire Answers:</p><ol style="margin-left:20px; color:#334155; list-style-type: decimal;">`;
+            state.assessmentAnswers.forEach((ans, i) => {
+                const valStr = ans === 0 ? 'Never' : ans === 1 ? 'Sometimes' : 'Often';
+                const colStr = ans === 0 ? 'color:gray;' : ans === 1 ? 'color:#f59e0b;' : 'color:#dc2626; font-weight:bold;';
+                htmlLog += `<li style="margin-bottom:12px; font-weight: 500;">${assessmentQuestions[i]}<br/><span style="${colStr}">Answer: ${valStr}</span></li>`;
+            });
+            htmlLog += `</ol></div>`;
+
+            await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'children', state.currentChild.id), { 
+                assessmentAnswers: state.assessmentAnswers, assessmentScore: score, assessmentIndication: ind 
+            }, { merge: true });
+
+            await addDoc(collection(db, 'artifacts', appId, 'users', state.user.uid, `children/${state.currentChild.id}/logs`), { 
+                date: dateStr, time: timeStr, type: 'Assessment', severity: score > 30 ? '5' : score > 15 ? '3' : '1',
+                duration: 'N/A', trigger: 'Completed Checklist', notes: "Saved Assessment Results", htmlNotes: htmlLog, timestamp: Date.now() 
+            });
+
+            state.currentChild.assessmentScore = score;
+            state.currentChild.assessmentIndication = ind;
+            render();
+        }
+        window.retakeAssessment = async function() {
+            await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'children', state.currentChild.id), { 
+                assessmentAnswers: null, assessmentScore: null, assessmentIndication: null 
+            }, { merge: true });
+            state.currentChild.assessmentScore = null;
+            state.assessmentAnswers = Array(25).fill(null);
+            render();
+        }
+
+        // --- PERSONAL CARE GUIDE ---
+        function getGuideHTML() {
+            if (state.currentChild.generatedGuide && state.guideViewMode === 'view') {
+                return `
+                    <div class="space-y-4 fade-in">
+                        <div class="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm">
+                            <button onclick="navigateTo('child-menu', '${state.currentChild.id}')" class="text-${HassieHond_ThemeColor}-600 font-bold p-2 px-4 bg-${HassieHond_ThemeColor}-50 rounded-lg">← Back</button>
+                            <button onclick="editGuide()" class="text-sm bg-slate-200 px-4 py-2 rounded-full font-bold hover:bg-slate-300">Edit Answers</button>
+                        </div>
+                        <div class="bg-${HassieHond_ThemeColor}-50 border border-${HassieHond_ThemeColor}-200 p-4 rounded-xl text-sm text-${HassieHond_ThemeColor}-800 font-bold text-center shadow-sm">
+                            This personalized guide was automatically saved to your Daily Tracker.
+                        </div>
+                        <div class="bg-white p-6 rounded-2xl shadow-sm tracker-html-render border-t-8 border-${HassieHond_ThemeColor}-600">
+                            <h2 class="text-3xl font-black text-${HassieHond_ThemeColor}-800 mb-6 border-b-2 border-${HassieHond_ThemeColor}-100 pb-4">${state.currentChild.name}'s Care Guide</h2>
+                            <div class="text-slate-700 text-lg font-medium">${state.currentChild.generatedGuide}</div>
+                        </div>
+                    </div>`;
+            }
+
+            state.guideAnswers = state.currentChild.guideAnswers || Array(guidanceQuestions.length).fill().map(() => []);
+            let html = `
+                <div class="space-y-6 fade-in">
+                    <div class="flex items-center gap-3 bg-white p-4 rounded-xl shadow-sm">
+                        <button onclick="navigateTo('child-menu', '${state.currentChild.id}')" class="text-${HassieHond_ThemeColor}-600 font-bold p-2 bg-${HassieHond_ThemeColor}-50 rounded-lg px-4">← Back</button>
+                        <h2 class="text-xl font-bold text-slate-800">Create Guide</h2>
+                    </div>
+                    <div class="bg-${HassieHond_ThemeColor}-50 border border-${HassieHond_ThemeColor}-200 p-5 rounded-xl text-sm text-${HassieHond_ThemeColor}-800 font-bold text-center shadow-sm">
+                        Select answers below about ${state.currentChild.name}'s moods and habits. You can tap on multiple answers.
+                    </div>
+            `;
+            guidanceQuestions.forEach((qObj, idx) => {
+                const arr = state.guideAnswers[idx];
+                html += `
+                    <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                        <p class="font-bold text-slate-800 mb-4 text-lg">${qObj.q}</p>
+                        <div class="flex flex-wrap gap-2" id="gq-${idx}">
+                            ${qObj.opts.map(opt => {
+                                const isSel = arr.includes(opt);
+                                const cls = isSel ? `bg-${HassieHond_ThemeColor}-600 text-white border-${HassieHond_ThemeColor}-600 shadow-md scale-105` : 'bg-slate-50 text-slate-600 border-slate-200';
+                                return `<button onclick="toggleGuideAns(${idx}, '${opt}')" class="guide-btn px-4 py-3 text-sm font-bold rounded-xl border-2 transition-all ${cls}">${isSel?'✓ ':''}${opt}</button>`;
+                            }).join('')}
+                        </div>
+                    </div>`;
+            });
+            html += `<button id="genGuideBtn" onclick="generateAIGuide()" class="w-full bg-${HassieHond_ThemeColor}-600 text-white font-black text-xl p-5 rounded-2xl shadow-lg hover:bg-${HassieHond_ThemeColor}-700 transition">Generate Personal Care Guide</button></div>`;
+            return html;
+        }
+
+        window.toggleGuideAns = function(qIdx, opt) {
+            let arr = state.guideAnswers[qIdx] || [];
+            if (arr.includes(opt)) arr = arr.filter(x => x !== opt);
+            else arr.push(opt);
+            state.guideAnswers[qIdx] = arr;
+            
+            const btns = document.getElementById(`gq-${qIdx}`).querySelectorAll('.guide-btn');
+            guidanceQuestions[qIdx].opts.forEach((o, i) => {
+                const isSel = arr.includes(o);
+                const cls = isSel ? `guide-btn px-4 py-3 text-sm font-bold rounded-xl border-2 transition-all bg-${HassieHond_ThemeColor}-600 text-white border-${HassieHond_ThemeColor}-600 shadow-md scale-105` : `guide-btn px-4 py-3 text-sm font-bold rounded-xl border-2 transition-all bg-slate-50 text-slate-600 border-slate-200`;
+                btns[i].className = cls;
+                btns[i].innerHTML = isSel ? `✓ ${o}` : o;
+            });
+        }
+
+        window.generateAIGuide = async function() {
+            const btn = document.getElementById('genGuideBtn');
+            btn.innerText = "Thinking & Creating Guide...";
+            btn.disabled = true;
+
+            let prompt = `You are an expert, compassionate child development specialist helping a parent with their child who may be on the autism spectrum. \n`;
+            prompt += `The child's name is ${state.currentChild.name}, age ${HassieHond_CalculateAge(state.currentChild.dob)}.\n`;
+            
+            if (state.currentChild.assessmentScore !== undefined) {
+                prompt += `Important Context: ${state.currentChild.name} recently scored ${state.currentChild.assessmentScore}/50 on an autism checklist. This indicates a ${state.currentChild.assessmentIndication || 'specific level'} of traits. Take this into account.\n\n`;
+            }
+
+            prompt += `Here is what the parent told us about ${state.currentChild.name}'s daily habits:\n`;
+            guidanceQuestions.forEach((q, i) => {
+                if(state.guideAnswers[i] && state.guideAnswers[i].length > 0) prompt += `- ${q.q}: ${state.guideAnswers[i].join(", ")}\n`;
+            });
+            prompt += `\nBased on this, create a beautiful, easy-to-read "Personal Care Guide". Include: What to Do, What Not To Do, What to Look Out For, and General Advice. Write in simple, supportive normal English. Use basic HTML tags (<h3>, <p>, <ul>, <li>, <strong>). Do not use markdown blocks, just raw HTML.`;
+
+            try {
+                const htmlResponse = await callGemini(prompt);
+                
+                const now = new Date();
+                const dateStr = now.toISOString().split('T')[0];
+                const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                
+                let htmlLogContent = `<div class="tracker-rich-log"><p style="font-weight:bold; color:#0f766e; font-size:1.1rem; margin-bottom:10px;">Generated New Personal Care Guide</p>`;
+                htmlLogContent += `<p style="font-weight:bold; text-decoration:underline;">Parent Answers:</p><ul style="margin-bottom:20px; list-style-type: square; margin-left: 20px; color:#334155;">`;
+                
+                guidanceQuestions.forEach((qObj, i) => {
+                    const arr = state.guideAnswers[i];
+                    if (arr && arr.length > 0) {
+                        htmlLogContent += `<li style="margin-bottom:8px;"><strong>${qObj.q}</strong><br/>Answer: <span style="color:#0f766e; font-weight:bold;">${arr.join(", ")}</span></li>`;
+                    }
+                });
+                htmlLogContent += `</ul><div style="border-top:2px dashed #cbd5e1; margin-top:20px; padding-top:20px;"><p style="font-weight:bold; text-decoration:underline; margin-bottom:10px; font-size: 1.1rem; color: #0f766e;">AI Generated Care Plan:</p>${htmlResponse}</div></div>`;
+
+                await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'children', state.currentChild.id), { 
+                    guideAnswers: state.guideAnswers, generatedGuide: htmlResponse 
+                }, { merge: true });
+
+                await addDoc(collection(db, 'artifacts', appId, 'users', state.user.uid, `children/${state.currentChild.id}/logs`), { 
+                    date: dateStr, time: timeStr, type: 'Care Guide', severity: '1', duration: 'N/A',
+                    trigger: 'Generated Custom Plan', notes: "Full plan saved.", htmlNotes: htmlLogContent, timestamp: Date.now() 
+                });
+
+                state.currentChild.generatedGuide = htmlResponse;
+                state.currentChild.guideAnswers = state.guideAnswers;
+                state.guideViewMode = 'view';
+                render();
+            } catch(e) {
+                alert("Failed to generate the guide. Ensure API is active.");
+                btn.innerText = "Generate Personal Care Guide";
+                btn.disabled = false;
+            }
+        }
+
+        window.editGuide = function() {
+            state.guideViewMode = 'form';
+            render();
+        }
+
+        // --- TRACKER ---
+        const commonTriggers = ["Loud Noise", "Routine Change", "Transitioning", "Crowds", "Bright Lights", "Tired", "Hungry", "Unknown"];
+        const commonHelps = ["Deep pressure/Hugs", "Giving space", "Favorite toy", "Music", "Dark/Quiet Room", "Snack"];
+        let tempTriggers = [];
+        let tempHelps = [];
+
+        function getTrackerHTML() {
+            return `
+                <div class="space-y-6 fade-in">
+                    <div class="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm">
+                        <button onclick="navigateTo('child-menu', '${state.currentChild.id}')" class="text-${HassieHond_ThemeColor}-600 font-bold p-2 px-4 bg-${HassieHond_ThemeColor}-50 rounded-lg">← Back</button>
+                        <button id="toggleFormBtn" class="bg-${HassieHond_ThemeColor}-600 text-white px-5 py-2 rounded-lg font-bold shadow-md">+ Add Entry</button>
+                    </div>
+
+                    <div id="trackerForm" class="hidden bg-white p-6 rounded-2xl shadow-lg border-t-8 border-${HassieHond_ThemeColor}-500 space-y-5 fade-in">
+                        <h3 class="font-black text-slate-800 text-2xl border-b-2 border-slate-100 pb-3">New Detailed Entry</h3>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div><label class="block text-sm font-bold text-slate-600 mb-2">Date</label><input id="trDate" type="date" value="${new Date().toISOString().split('T')[0]}" class="w-full border-2 p-3 rounded-xl bg-slate-50 font-bold outline-none focus:border-${HassieHond_ThemeColor}-500"></div>
+                            <div><label class="block text-sm font-bold text-slate-600 mb-2">Time</label><input id="trTime" type="time" value="${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}" class="w-full border-2 p-3 rounded-xl bg-slate-50 font-bold outline-none focus:border-${HassieHond_ThemeColor}-500"></div>
+                        </div>
+                        <div><label class="block text-sm font-bold text-slate-600 mb-2">Category</label><select id="trType" class="w-full border-2 p-4 rounded-xl font-black text-lg bg-slate-50 outline-none"><option>Meltdown/Tantrum</option><option>Sensory Issue</option><option>Sleep Issue</option><option>Great/Happy Day</option><option>Sickness</option><option>Medication</option><option>Therapy/School</option></select></div>
+                        
+                        <div class="grid grid-cols-2 gap-4">
+                            <div><label class="block text-sm font-bold text-slate-600 mb-2">Severity</label><select id="trSev" class="w-full border-2 p-3 rounded-xl font-bold bg-slate-50"><option value="1">1 - Mild</option><option value="3" selected>3 - Moderate</option><option value="5">5 - Extreme</option></select></div>
+                            <div><label class="block text-sm font-bold text-slate-600 mb-2">Duration</label><input id="trDur" type="text" placeholder="e.g. 15 mins" class="w-full border-2 p-3 rounded-xl font-medium bg-slate-50"></div>
+                        </div>
+
+                        <div class="bg-orange-50 p-4 rounded-xl border border-orange-100">
+                            <label class="block text-sm font-bold text-orange-800 mb-3">What caused it? (Tap to select)</label>
+                            <div class="flex flex-wrap gap-2" id="trigContainer">
+                                ${commonTriggers.map(t => `<button onclick="toggleTrArr('trig', '${t}')" class="trig-btn px-4 py-2 rounded-xl text-sm font-bold border-2 bg-white text-slate-600 border-slate-200">${t}</button>`).join('')}
+                            </div>
+                        </div>
+
+                        <div class="bg-${HassieHond_ThemeColor}-50 p-4 rounded-xl border border-${HassieHond_ThemeColor}-100">
+                            <label class="block text-sm font-bold text-${HassieHond_ThemeColor}-800 mb-3">What helped calm them?</label>
+                            <div class="flex flex-wrap gap-2" id="helpContainer">
+                                ${commonHelps.map(h => `<button onclick="toggleTrArr('help', '${h}')" class="help-btn px-4 py-2 rounded-xl text-sm font-bold border-2 bg-white text-slate-600 border-slate-200">${h}</button>`).join('')}
+                            </div>
+                        </div>
+
+                        <div><label class="block text-sm font-bold text-slate-600 mb-2">Notes</label><textarea id="trNotes" rows="4" class="w-full border-2 p-4 rounded-xl font-medium bg-slate-50 outline-none focus:border-${HassieHond_ThemeColor}-500" placeholder="Details..."></textarea></div>
+                        <button onclick="saveTrackerLog()" class="w-full bg-${HassieHond_ThemeColor}-600 text-white font-black text-xl py-5 rounded-xl shadow-lg hover:bg-${HassieHond_ThemeColor}-700">Save Log Entry</button>
+                    </div>
+
+                    <div id="trackerLogsList" class="space-y-5"></div>
+                </div>`;
+        }
+
+        window.toggleTrArr = function(type, val) {
+            let arr = type === 'trig' ? tempTriggers : tempHelps;
+            if(arr.includes(val)) arr = arr.filter(x => x !== val); else arr.push(val);
+            if(type === 'trig') tempTriggers = arr; else tempHelps = arr;
+
+            const btns = document.getElementById(type === 'trig' ? 'trigContainer' : 'helpContainer').querySelectorAll(type === 'trig' ? '.trig-btn' : '.help-btn');
+            const sourceList = type === 'trig' ? commonTriggers : commonHelps;
+            sourceList.forEach((item, i) => {
+                const isSel = arr.includes(item);
+                if(type === 'trig') btns[i].className = isSel ? 'trig-btn px-4 py-2 rounded-xl text-sm font-bold border-2 bg-orange-500 text-white border-orange-500 shadow-md' : 'trig-btn px-4 py-2 rounded-xl text-sm font-bold border-2 bg-white text-slate-600 border-slate-200';
+                else btns[i].className = isSel ? `help-btn px-4 py-2 rounded-xl text-sm font-bold border-2 bg-${HassieHond_ThemeColor}-600 text-white border-${HassieHond_ThemeColor}-600 shadow-md` : 'help-btn px-4 py-2 rounded-xl text-sm font-bold border-2 bg-white text-slate-600 border-slate-200';
+            });
+        }
+
+        function setupTrackerListeners() {
+            const btn = document.getElementById('toggleFormBtn');
+            const form = document.getElementById('trackerForm');
+            if(btn && form) {
+                btn.onclick = () => {
+                    form.classList.toggle('hidden');
+                    btn.innerText = form.classList.contains('hidden') ? '+ Add Entry' : 'Cancel';
+                    tempTriggers = []; tempHelps = []; 
+                    document.querySelectorAll('.trig-btn').forEach(b=>b.className='trig-btn px-4 py-2 rounded-xl text-sm font-bold border-2 bg-white text-slate-600 border-slate-200');
+                    document.querySelectorAll('.help-btn').forEach(b=>b.className='help-btn px-4 py-2 rounded-xl text-sm font-bold border-2 bg-white text-slate-600 border-slate-200');
+                };
+            }
+            renderTrackerLogs();
+        }
+
+        window.saveTrackerLog = async function() {
+            const date = document.getElementById('trDate').value;
+            const time = document.getElementById('trTime').value;
+            const type = document.getElementById('trType').value;
+            const severity = document.getElementById('trSev').value;
+            const duration = document.getElementById('trDur').value;
+            let notes = document.getElementById('trNotes').value;
+            if(!date) return;
+            
+            const combTrig = tempTriggers.length > 0 ? tempTriggers.join(", ") : "";
+            const helpText = tempHelps.length > 0 ? `Helped calm: ${tempHelps.join(", ")}` : "";
+            if (helpText) notes = helpText + "\n\n" + notes;
+
+            await addDoc(collection(db, 'artifacts', appId, 'users', state.user.uid, `children/${state.currentChild.id}/logs`), { 
+                date, time, type, severity, duration, trigger: combTrig, notes, timestamp: Date.now() 
+            });
+            document.getElementById('trackerForm').classList.add('hidden');
+            document.getElementById('toggleFormBtn').innerText = '+ Add Entry';
+            document.getElementById('trNotes').value = '';
+            document.getElementById('trDur').value = '';
+        }
+
+        window.deleteLog = async function(id) {
+            if(confirm("Completely delete this entry?")) await deleteDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, `children/${state.currentChild.id}/logs`, id));
+        }
+
+        function renderTrackerLogs() {
+            const list = document.getElementById('trackerLogsList');
+            if (!list) return;
+            if (state.trackerLogs.length === 0) {
+                list.innerHTML = `<div class="text-center p-12 bg-white rounded-3xl text-slate-500 font-bold border text-lg">No entries yet.<br/>Start logging.</div>`;
+                return;
+            }
+            
+            const getCol = (t) => {
+                if(t.includes('Meltdown')) return 'bg-red-100 text-red-700 border-red-200';
+                if(t.includes('Happy')) return 'bg-green-100 text-green-700 border-green-200';
+                if(t.includes('Guide')) return 'bg-teal-700 text-white border-teal-800';
+                if(t.includes('Assessment')) return 'bg-slate-800 text-white border-slate-900';
+                return 'bg-slate-100 text-slate-700 border-slate-200';
+            };
+
+            list.innerHTML = state.trackerLogs.map(log => `
+                <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 relative overflow-hidden">
+                    <button onclick="deleteLog('${log.id}')" class="absolute top-4 right-4 text-slate-400 hover:text-red-500 font-bold bg-slate-100 rounded-full w-10 h-10 shadow-sm z-10">✖</button>
+                    <div class="flex flex-wrap items-center gap-3 mb-5 pr-10 border-b-2 border-slate-100 pb-4">
+                        <span class="text-sm font-black px-4 py-1.5 rounded-lg border-2 ${getCol(log.type)} uppercase">${log.type}</span>
+                        <span class="text-sm font-bold text-slate-700 bg-slate-100 px-3 py-1.5 rounded-lg">📅 ${log.date}</span>
+                        <span class="text-sm font-bold text-slate-700 bg-slate-100 px-3 py-1.5 rounded-lg">⏰ ${log.time || 'N/A'}</span>
+                    </div>
+                    ${(log.severity || log.duration || log.trigger) ? `
+                        <div class="grid grid-cols-2 gap-4 mb-5 text-sm bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                            ${log.severity ? `<div><span class="text-slate-500 block text-xs font-black uppercase">Severity</span><span class="font-black text-slate-800 text-lg">${log.severity}/5</span></div>` : ''}
+                            ${log.duration ? `<div><span class="text-slate-500 block text-xs font-black uppercase">Duration</span><span class="font-bold text-slate-800 text-lg">${log.duration}</span></div>` : ''}
+                            ${log.trigger ? `<div class="col-span-2 mt-2 pt-3 border-t-2"><span class="text-slate-500 block text-xs font-black uppercase">Trigger</span><span class="font-bold text-orange-600 text-base">${log.trigger}</span></div>` : ''}
+                        </div>
+                    ` : ''}
+                    <div class="bg-white">
+                        <span class="text-${HassieHond_ThemeColor}-700 block text-sm mb-2 uppercase font-black">Details & Notes</span>
+                        ${log.htmlNotes ? `<div class="tracker-html-render text-slate-800 text-base font-medium">${log.htmlNotes}</div>` : `<p class="text-slate-700 text-base font-medium whitespace-pre-wrap bg-slate-50 p-4 rounded-xl border">${log.notes || 'None'}</p>`}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // --- ASK EXPERT AI ---
+        function getQAHTML() {
+            return `
+                <div class="flex flex-col h-[85vh] fade-in">
+                    <div class="flex items-center gap-4 bg-white p-5 rounded-2xl shadow-sm mb-4 shrink-0 border-b-4 border-${HassieHond_ThemeColor}-500">
+                        <button onclick="navigateTo('child-menu', '${state.currentChild.id}')" class="text-${HassieHond_ThemeColor}-700 font-black p-3 bg-${HassieHond_ThemeColor}-50 rounded-xl">← Back</button>
+                        <div><h2 class="text-2xl font-black text-slate-800">Ask the Expert</h2></div>
+                    </div>
+                    <div id="chatWindow" class="flex-1 overflow-y-auto bg-white rounded-3xl shadow-inner p-5 space-y-5 mb-4 border border-slate-200"></div>
+                    <div class="shrink-0 flex gap-3">
+                        <input id="chatInput" type="text" placeholder="Ask your question here..." class="flex-1 border-2 p-5 rounded-2xl outline-none focus:border-${HassieHond_ThemeColor}-500 shadow-sm font-medium text-lg">
+                        <button id="sendChatBtn" onclick="sendChatMessage()" class="bg-${HassieHond_ThemeColor}-600 text-white px-8 rounded-2xl font-black text-lg shadow-lg hover:bg-${HassieHond_ThemeColor}-700">Send</button>
+                    </div>
+                </div>`;
+        }
+
+        window.sendChatMessage = async function() {
+            const inputEl = document.getElementById('chatInput');
+            const btn = document.getElementById('sendChatBtn');
+            const msg = inputEl.value.trim();
+            if (!msg) return;
+
+            inputEl.value = '';
+            btn.disabled = true;
+            state.chatMessages.push({ role: 'user', text: msg });
+            renderChatMessages();
+
+            const prompt = `You are an expert on children with autism talking to a parent about their child, ${state.currentChild.name}, age ${HassieHond_CalculateAge(state.currentChild.dob)}. Parent question: "${msg}". Be practical, simple everyday English.`;
+            
+            try {
+                const reply = await callGemini(prompt);
+                state.chatMessages.push({ role: 'ai', text: reply });
+            } catch(e) {
+                state.chatMessages.push({ role: 'ai', text: "Error connecting: " + e.message });
+            }
+            
+            btn.disabled = false;
+            renderChatMessages();
+        }
+
+        function renderChatMessages() {
+            const win = document.getElementById('chatWindow');
+            if(!win) return;
+            if(state.chatMessages.length === 0) {
+                win.innerHTML = `<div class="text-center text-slate-500 mt-12 p-6"><div class="text-6xl mb-4">💬</div><p class="font-black text-xl text-slate-700">Type your question below.</p></div>`;
+                return;
+            }
+            win.innerHTML = state.chatMessages.map(m => `
+                <div class="flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}">
+                    <div class="max-w-[85%] p-5 rounded-3xl text-base font-medium shadow-sm ${m.role === 'user' ? `bg-${HassieHond_ThemeColor}-600 text-white rounded-br-none` : 'bg-slate-50 border border-slate-200 text-slate-800 rounded-bl-none whitespace-pre-wrap'}">${m.text}</div>
+                </div>
+            `).join('');
+            win.scrollTop = win.scrollHeight;
+        }
+
+        // --- HASSIEHOND INTEGRATION 3: App Initializer ---
+        window.HassieHond_InitApp = async function() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Auth error:", error);
+            }
+
+            onAuthStateChanged(auth, (u) => {
+                state.user = u;
+                if(u) {
+                    onSnapshot(collection(db, 'artifacts', appId, 'users', u.uid, 'children'), (snap) => {
+                        state.children = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+                        if(state.currentChild) {
+                            const updated = state.children.find(c => c.id === state.currentChild.id);
+                            if(updated) {
+                                state.currentChild = updated;
+                                if(state.activeTab === 'guide') state.guideViewMode = updated.generatedGuide ? 'view' : 'form';
+                            } else navigateTo('dashboard');
+                        }
+                        render();
+                    });
+                }
+            });
+        }
+
+        setInterval(() => {
+            if(state.user && state.currentChild && state.activeTab === 'tracker' && !window._trackerListening) {
+                window._trackerListening = true;
+                const unsub = onSnapshot(collection(db, 'artifacts', appId, 'users', state.user.uid, `children/${state.currentChild.id}/logs`), (snap) => {
+                    state.trackerLogs = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b)=>b.timestamp-a.timestamp);
+                    if(state.activeTab === 'tracker') renderTrackerLogs();
+                });
+                window._unsubTracker = () => { unsub(); window._trackerListening = false; };
+            } else if ((!state.currentChild || state.activeTab !== 'tracker') && window._trackerListening) {
+                window._unsubTracker();
+            }
+        }, 500);
+
+        HassieHond_InitApp();
+
+    </script>
+</body>
+</html>

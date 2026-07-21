@@ -226,7 +226,7 @@
                 { id: 'assessment', title: 'Autism Checklist', desc: 'Questions to help doctors with diagnosis', icon: '📝' },
                 { id: 'guide', title: 'Personal Care Guide', desc: 'Custom guide on how to handle your child', icon: '📖' },
                 { id: 'qa', title: 'Ask Questions', desc: 'Get specific help for situations', icon: '💬' },
-                { id: 'tracker', title: 'Daily Tracker', desc: 'Log behaviors, triggers, and guides', icon: '📅' },
+                { id: 'tracker', title: 'Daily Tracker & Calendar', desc: 'Log behaviors, triggers, and guides', icon: '📅' },
             ];
 
             let html = `
@@ -260,7 +260,7 @@
                 return `
                     <div class="bg-white p-6 rounded-2xl shadow-sm fade-in text-center space-y-6">
                         <h2 class="text-2xl font-bold text-slate-800">Checklist Results</h2>
-                        <p class="text-slate-600 text-sm font-medium">Show this screen to your doctor. <br/><br/><span class="text-${HassieHond_ThemeColor}-700 bg-${HassieHond_ThemeColor}-50 p-2 rounded-lg block font-bold">(These results were also saved automatically to your Daily Tracker).</span></p>
+                        <p class="text-slate-600 text-sm font-medium">Show this screen to your doctor. <br/><br/><span class="text-${HassieHond_ThemeColor}-700 bg-${HassieHond_ThemeColor}-50 p-2 rounded-lg block font-bold">(These results were also saved automatically to your Daily Tracker Calendar).</span></p>
                         <div class="bg-slate-50 p-8 rounded-2xl border-2 border-slate-100">
                             <p class="text-6xl font-black mb-3 text-slate-800">${score} <span class="text-2xl text-slate-400">/ 50</span></p>
                             <p class="text-xl font-bold ${col} uppercase tracking-wider">${ind}</p>
@@ -289,7 +289,7 @@
                         <h2 class="text-xl font-bold text-slate-800">Autism Checklist</h2>
                     </div>
                     <div class="bg-${HassieHond_ThemeColor}-50 border border-${HassieHond_ThemeColor}-200 p-5 rounded-xl text-sm text-${HassieHond_ThemeColor}-800 font-bold text-center shadow-sm">
-                        Please answer the following 25 questions as honestly as possible about how ${state.currentChild.name} normally behaves.
+                        Please answer the following 25 questions as honestly as possible about how ${state.currentChild.name} normally behaves. <br><b>Progress autosaves instantly when you click!</b>
                     </div>
             `;
             assessmentQuestions.forEach((q, i) => {
@@ -316,6 +316,13 @@
                 if (i === val) b.className = `ast-btn flex-1 py-3 rounded-xl border-2 text-sm font-bold transition bg-${HassieHond_ThemeColor}-600 text-white border-${HassieHond_ThemeColor}-600 shadow-md`;
                 else b.className = `ast-btn flex-1 py-3 rounded-xl border-2 text-sm font-bold transition bg-slate-50 text-slate-600 border-slate-200`;
             });
+
+            // Quietly Auto-save answer so parent doesn't lose progress
+            if (state.currentChild && state.user) {
+                setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'children', state.currentChild.id), { 
+                    assessmentAnswers: state.assessmentAnswers 
+                }, { merge: true }).catch(e => console.log("Auto-save sync:", e));
+            }
         }
 
         window.calcAssessment = async function() {
@@ -367,7 +374,7 @@
                             <button onclick="editGuide()" class="text-sm bg-slate-200 px-4 py-2 rounded-full font-bold hover:bg-slate-300">Edit Answers</button>
                         </div>
                         <div class="bg-${HassieHond_ThemeColor}-50 border border-${HassieHond_ThemeColor}-200 p-4 rounded-xl text-sm text-${HassieHond_ThemeColor}-800 font-bold text-center shadow-sm">
-                            This personalized guide was automatically saved to your Daily Tracker.
+                            This personalized guide was automatically saved to your Daily Tracker Calendar.
                         </div>
                         <div class="bg-white p-6 rounded-2xl shadow-sm tracker-html-render border-t-8 border-${HassieHond_ThemeColor}-600">
                             <h2 class="text-3xl font-black text-${HassieHond_ThemeColor}-800 mb-6 border-b-2 border-${HassieHond_ThemeColor}-100 pb-4">${state.currentChild.name}'s Care Guide</h2>
@@ -384,7 +391,7 @@
                         <h2 class="text-xl font-bold text-slate-800">Create Guide</h2>
                     </div>
                     <div class="bg-${HassieHond_ThemeColor}-50 border border-${HassieHond_ThemeColor}-200 p-5 rounded-xl text-sm text-${HassieHond_ThemeColor}-800 font-bold text-center shadow-sm">
-                        Select answers below about ${state.currentChild.name}'s moods and habits. You can tap on multiple answers.
+                        Select answers below about ${state.currentChild.name}'s moods and habits. You can tap on multiple answers. <br><b>Your answers auto-save immediately.</b>
                     </div>
             `;
             guidanceQuestions.forEach((qObj, idx) => {
@@ -401,7 +408,7 @@
                         </div>
                     </div>`;
             });
-            html += `<button id="genGuideBtn" onclick="generateAIGuide()" class="w-full bg-${HassieHond_ThemeColor}-600 text-white font-black text-xl p-5 rounded-2xl shadow-lg hover:bg-${HassieHond_ThemeColor}-700 transition">Generate Personal Care Guide</button></div>`;
+            html += `<button id="genGuideBtn" onclick="generateAIGuide()" class="w-full bg-${HassieHond_ThemeColor}-600 text-white font-black text-xl p-5 rounded-2xl shadow-lg hover:bg-${HassieHond_ThemeColor}-700 transition">Save & Generate Personal Care Guide</button></div>`;
             return html;
         }
 
@@ -418,17 +425,68 @@
                 btns[i].className = cls;
                 btns[i].innerHTML = isSel ? `✓ ${o}` : o;
             });
+
+            // Quietly Auto-save answers so parent doesn't lose progress if they close the app
+            if (state.currentChild && state.user) {
+                setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'children', state.currentChild.id), { 
+                    guideAnswers: state.guideAnswers 
+                }, { merge: true }).catch(e => console.log("Auto-save sync:", e));
+            }
         }
 
         window.generateAIGuide = async function() {
             const btn = document.getElementById('genGuideBtn');
-            btn.innerText = "Thinking & Creating Guide...";
+            btn.innerText = "Saving to Calendar & Creating AI Guide...";
             btn.disabled = true;
 
+            const now = new Date();
+            const dateStr = now.toISOString().split('T')[0];
+            const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            
+            // Build the log of just the answers first
+            let htmlLogContent = `<div class="tracker-rich-log"><p style="font-weight:bold; color:#0f766e; font-size:1.1rem; margin-bottom:10px;">Generated New Personal Care Guide</p>`;
+            htmlLogContent += `<p style="font-weight:bold; text-decoration:underline;">Parent Answers:</p><ul style="margin-bottom:20px; list-style-type: square; margin-left: 20px; color:#334155;">`;
+            
+            let answeredAtLeastOne = false;
+            guidanceQuestions.forEach((qObj, i) => {
+                const arr = state.guideAnswers[i];
+                if (arr && arr.length > 0) {
+                    answeredAtLeastOne = true;
+                    htmlLogContent += `<li style="margin-bottom:8px;"><strong>${qObj.q}</strong><br/>Answer: <span style="color:#0f766e; font-weight:bold;">${arr.join(", ")}</span></li>`;
+                }
+            });
+            htmlLogContent += `</ul>`;
+
+            if (!answeredAtLeastOne) {
+                alert("Please select at least one answer so we have something to build the guide with.");
+                btn.innerText = "Save & Generate Personal Care Guide";
+                btn.disabled = false;
+                return;
+            }
+
+            // 1. We immediately save the answers to the Daily Tracker Calendar (so they are NEVER lost)
+            let logRef;
+            try {
+                await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'children', state.currentChild.id), { 
+                    guideAnswers: state.guideAnswers 
+                }, { merge: true });
+
+                logRef = await addDoc(collection(db, 'artifacts', appId, 'users', state.user.uid, `children/${state.currentChild.id}/logs`), { 
+                    date: dateStr, time: timeStr, type: 'Care Guide', severity: '1', duration: 'N/A',
+                    trigger: 'Answered Care Questions', notes: "Parent answers saved to calendar. Waiting for AI Plan...", htmlNotes: htmlLogContent + `<div style="color:#f59e0b; font-weight:bold;">Thinking & Writing AI Plan...</div></div>`, timestamp: Date.now() 
+                });
+            } catch(e) {
+                alert("Could not connect to the Calendar. Please check your internet connection.");
+                btn.innerText = "Save & Generate Personal Care Guide";
+                btn.disabled = false;
+                return;
+            }
+
+            // 2. Now we try to get the AI to generate the full written guide based on the saved answers
             let prompt = `You are an expert, compassionate child development specialist helping a parent with their child who may be on the autism spectrum. \n`;
             prompt += `The child's name is ${state.currentChild.name}, age ${HassieHond_CalculateAge(state.currentChild.dob)}.\n`;
             
-            if (state.currentChild.assessmentScore !== undefined) {
+            if (state.currentChild.assessmentScore !== undefined && state.currentChild.assessmentScore !== null) {
                 prompt += `Important Context: ${state.currentChild.name} recently scored ${state.currentChild.assessmentScore}/50 on an autism checklist. This indicates a ${state.currentChild.assessmentIndication || 'specific level'} of traits. Take this into account.\n\n`;
             }
 
@@ -441,37 +499,32 @@
             try {
                 const htmlResponse = await callGemini(prompt);
                 
-                const now = new Date();
-                const dateStr = now.toISOString().split('T')[0];
-                const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                
-                let htmlLogContent = `<div class="tracker-rich-log"><p style="font-weight:bold; color:#0f766e; font-size:1.1rem; margin-bottom:10px;">Generated New Personal Care Guide</p>`;
-                htmlLogContent += `<p style="font-weight:bold; text-decoration:underline;">Parent Answers:</p><ul style="margin-bottom:20px; list-style-type: square; margin-left: 20px; color:#334155;">`;
-                
-                guidanceQuestions.forEach((qObj, i) => {
-                    const arr = state.guideAnswers[i];
-                    if (arr && arr.length > 0) {
-                        htmlLogContent += `<li style="margin-bottom:8px;"><strong>${qObj.q}</strong><br/>Answer: <span style="color:#0f766e; font-weight:bold;">${arr.join(", ")}</span></li>`;
-                    }
-                });
-                htmlLogContent += `</ul><div style="border-top:2px dashed #cbd5e1; margin-top:20px; padding-top:20px;"><p style="font-weight:bold; text-decoration:underline; margin-bottom:10px; font-size: 1.1rem; color: #0f766e;">AI Generated Care Plan:</p>${htmlResponse}</div></div>`;
+                // If AI succeeds, we append the generated guide to the Calendar entry we just created
+                const finalLogHtml = htmlLogContent + `<div style="border-top:2px dashed #cbd5e1; margin-top:20px; padding-top:20px;"><p style="font-weight:bold; text-decoration:underline; margin-bottom:10px; font-size: 1.1rem; color: #0f766e;">AI Generated Care Plan:</p>${htmlResponse}</div></div>`;
 
                 await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'children', state.currentChild.id), { 
-                    guideAnswers: state.guideAnswers, generatedGuide: htmlResponse 
+                    generatedGuide: htmlResponse 
                 }, { merge: true });
 
-                await addDoc(collection(db, 'artifacts', appId, 'users', state.user.uid, `children/${state.currentChild.id}/logs`), { 
-                    date: dateStr, time: timeStr, type: 'Care Guide', severity: '1', duration: 'N/A',
-                    trigger: 'Generated Custom Plan', notes: "Full plan saved.", htmlNotes: htmlLogContent, timestamp: Date.now() 
-                });
+                // Update the log inside the Daily Tracker Calendar
+                await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, `children/${state.currentChild.id}/logs`, logRef.id), { 
+                    notes: "Parent answers and full AI Care Plan saved.", htmlNotes: finalLogHtml
+                }, { merge: true });
 
                 state.currentChild.generatedGuide = htmlResponse;
-                state.currentChild.guideAnswers = state.guideAnswers;
                 state.guideViewMode = 'view';
                 render();
             } catch(e) {
-                alert("Failed to generate the guide. Ensure API is active.");
-                btn.innerText = "Generate Personal Care Guide";
+                // If AI fails, the parent's questions and answers are still safely saved in the Calendar log!
+                alert("We saved your answers securely to the Daily Tracker Calendar, but the AI could not generate the written plan right now. Please try again later.");
+                
+                const failLogHtml = htmlLogContent + `<div style="border-top:2px dashed #cbd5e1; margin-top:20px; padding-top:20px; color:red; font-weight:bold;">AI Plan could not be generated at this time. Please try creating it again from the Care Guide menu later.</div></div>`;
+                
+                await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, `children/${state.currentChild.id}/logs`, logRef.id), { 
+                    notes: "Parent answers saved. AI Plan failed to generate.", htmlNotes: failLogHtml
+                }, { merge: true });
+                
+                btn.innerText = "Try Generating AI Plan Again";
                 btn.disabled = false;
             }
         }
@@ -481,7 +534,7 @@
             render();
         }
 
-        // --- TRACKER ---
+        // --- TRACKER & CALENDAR ---
         const commonTriggers = ["Loud Noise", "Routine Change", "Transitioning", "Crowds", "Bright Lights", "Tired", "Hungry", "Unknown"];
         const commonHelps = ["Deep pressure/Hugs", "Giving space", "Favorite toy", "Music", "Dark/Quiet Room", "Snack"];
         let tempTriggers = [];
